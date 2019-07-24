@@ -1,0 +1,15 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+termoclient = {path = "."}
+
+[packages]
+termoclient = {path = "."}
+e1839a8 = {path = "."}
+daemonize = "*"
+
+[requires]
+python_version = "3.5"

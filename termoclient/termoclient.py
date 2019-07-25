@@ -23,7 +23,7 @@ def client(dev_set):
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 
         # Connect the socket to the port where the server is listening
-        sys.stderr.write ('connecting to %s' % server_address)
+        sys.stderr.write ('connecting to %s\n' % server_address)
         try:
             sock.connect(server_address)
         except socket.error:
@@ -31,7 +31,7 @@ def client(dev_set):
 
         try:
             # Send data
-            sys.stderr.write ('Sending "%s"' % dev_set)
+            sys.stderr.write ('Sending "%s"\n' % dev_set)
             sock.sendall(dev_set.encode("utf-8"))
 
             amount_received = 0
@@ -40,10 +40,10 @@ def client(dev_set):
             while amount_received < amount_expected:
                 data = sock.recv(16)
                 amount_received += len(data)
-                sys.stderr.write ('Received "%s" successfully' % data)
+                sys.stderr.write ('Received "%s" successfully\n' % data.decode())
                 time.sleep(1)
         finally:
-            sys.stderr.write ('Closing socket. Bye bye!')
+            sys.stderr.write ('Closing socket. Bye bye!\n')
             sock.close()
 
 
@@ -148,22 +148,29 @@ def mainloop(host, batch_number):
                 read_list.append(client_socket)
                 logger.debug ("Client connected.")
             else:
-                settemp = s.recv(1024)
-                if settemp:
-                    logger.debug ("Server recv: %s", settemp)
-                    if settemp == "KILLSERVER":
+                recv_cmd = s.recv(1024)
+                if recv_cmd:
+                    logger.debug ("Server recv: %s", recv_cmd.decode('UTF-8'))
+                    if recv_cmd.decode() == "KILLSERVER":
                         logger.debug ("Kill requested.")
-                        s.send(settemp)
+                        s.send(recv_cmd)
                         kill_server(dbconn, soc, sock)
 
-                    settemp = str(settemp)
-                    ret = newcontroller.SetDev(soc, settemp)
-                    if ret:
-                        logger.debug ("New configuration sent.")
-                    else:
-                        logger.debug ("Error sending configuration.")
-                    s.send(settemp.encode("utf-8"))
-                    settemp = None
+                    elif recv_cmd.decode() in "GetSetup":
+                        ret = newcontroller.GetSetup(soc)
+                        if ret:
+                            logger.debug ("Configuration received." + ret)
+                            s.send(recv_cmd)
+                        else:
+                            logger.debug ("Error sending configuration.")
+                    elif "STY:" in recv_cmd.decode():
+                        ret = newcontroller.SetDev(soc, recv_cmd.decode())
+                        if ret:
+                            logger.debug ("New configuration sent.")
+                            s.send(recv_cmd)
+                        else:
+                            logger.debug ("Error sending configuration.")
+                    recv_cmd = None
                 else:
                     s.close()
                     read_list.remove(s)

@@ -25,6 +25,15 @@ class TermoComm():
             self.logger.debug ("Error OS in TermoComm Class: {0}".format(err))
             return False
 
+    def GetSetup(self, soc):
+        try:
+            soc.write(("GTS:000%").encode('ascii'))
+            dret = soc.read_until(b'S')
+            return dret
+        except EOFError as er:
+            self.logger.debug ("Error OS in TermoComm Class: {0}".format(err))
+            return False
+
     def SetDev(self, soc, profile):
         try:
             data = profile + '%'

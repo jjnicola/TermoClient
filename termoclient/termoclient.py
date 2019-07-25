@@ -195,6 +195,7 @@ def help():
     print ("\t-v | --verbose                                     : Verbose enabled.")
     print ("\t-f | --foreground                                  : Not daemonize. Keep in foreground for debugging pourposes.")
     print ("\t-k | --kill-server                                 : Kill the server in a clean way.")
+    print ("\t-g | --get-setuo                                   : Get the current setup configuration in device.")
     print ("")
     print ("\t-c <dev config> | --config=<dev-config>            : Set the device to a beer profile with predefined temperatures")
     print ("                                                       or a custom one. Also to reset the device.")
@@ -228,11 +229,21 @@ def main(argv=sys.argv[1:], server=True):
     keep_fds = [fh.stream.fileno()]
 
     try:
-        opts, args = getopt.getopt(argv,"h:n:b:s:HVvfc:k",
-                                   ["host=","new-batch=",
-                                    "style=","batch-number=",
-                                    "help","verbose","version",
-                                    "foreground","config=","--kill-server"])
+        opts, args = getopt.getopt(
+                argv,
+                "h:n:b:s:HVvgfc:k",
+                ["host=",
+                 "new-batch=",
+                 "style=",
+                 "batch-number=",
+                 "help",
+                 "verbose",
+                 "version",
+                 "get-setup",
+                 "foreground",
+                 "config=",
+                 "kill-server"]
+        )
     except getopt.GetoptError:
         print ('Error in given arguments. Try datawriter.py -H|--help for help.')
         sys.exit(2)
@@ -243,7 +254,7 @@ def main(argv=sys.argv[1:], server=True):
     batch_number = False
     host = False
     foreground = False
-    dev_set = False
+    cli_cmd = None
     killserver = False
     for o, a in opts:
         if o in ("-H", "--help"):
@@ -266,7 +277,9 @@ def main(argv=sys.argv[1:], server=True):
             foreground = True
             print ("The process will not be demonized for debugging pourposes.")
         elif o in ("-c", "--config"):
-            dev_set = a
+            cli_cmd = a
+        elif o in ("-g", "--get-setup"):
+            cli_cmd = "GetSetup"
         elif o in ("-k", "--kill-server"):
             killserver = True
 
@@ -277,11 +290,12 @@ def main(argv=sys.argv[1:], server=True):
             client ("KILLSERVER")
             sys.exit(0)
 
-        if dev_set is True:
+        if not cli_cmd:
             print ("ERROR: Arguments needed to set the device.")
             print("If you think this is an error, look for a running process, socket file or pid file")
             sys.exit(1)
-        client(dev_set)
+
+        client(cli_cmd)
         sys.exit(0)
 
     if host is False:

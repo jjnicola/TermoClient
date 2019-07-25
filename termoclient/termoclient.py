@@ -18,33 +18,32 @@ server_address = '/tmp/termoclient.sock'
 
 
 def client(dev_set):
+    # Create a UDS socket
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 
-        # Create a UDS socket
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    # Connect the socket to the port where the server is listening
+    sys.stderr.write ('connecting to %s\n' % server_address)
+    try:
+        sock.connect(server_address)
+    except socket.error:
+        sys.exit(1)
 
-        # Connect the socket to the port where the server is listening
-        sys.stderr.write ('connecting to %s\n' % server_address)
-        try:
-            sock.connect(server_address)
-        except socket.error:
-            sys.exit(1)
+    try:
+        # Send data
+        sys.stderr.write ('Sending "%s"\n' % dev_set)
+        sock.sendall(dev_set.encode("utf-8"))
 
-        try:
-            # Send data
-            sys.stderr.write ('Sending "%s"\n' % dev_set)
-            sock.sendall(dev_set.encode("utf-8"))
+        amount_received = 0
+        amount_expected = len(dev_set.encode("utf-8"))
 
-            amount_received = 0
-            amount_expected = len(dev_set.encode("utf-8"))
-
-            while amount_received < amount_expected:
-                data = sock.recv(16)
-                amount_received += len(data)
-                sys.stderr.write ('Received "%s" successfully\n' % data.decode())
-                time.sleep(1)
-        finally:
-            sys.stderr.write ('Closing socket. Bye bye!\n')
-            sock.close()
+        while amount_received < amount_expected:
+            data = sock.recv(16)
+            amount_received += len(data)
+            sys.stderr.write ('Received "%s" successfully\n' % data.decode())
+            time.sleep(1)
+    finally:
+        sys.stderr.write ('Closing socket. Bye bye!\n')
+        sock.close()
 
 
 def kill_server(dbconn, devsoc, sock):
@@ -60,6 +59,61 @@ def kill_server(dbconn, devsoc, sock):
     logger.debug("Server Killed")
     sys.exit(0)
 
+def open_server_sock():
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.setblocking(0)
+
+    # Bind the socket to the port
+    logger.debug ("Starting up on %s.", server_address)
+    sock.bind(server_address)
+
+    # Listen for incoming connections
+    sock.listen(5)
+    return sock
+
+def check_for_client(sock, read_list, newcontroller):
+    readable, writable, errored = select.select(read_list, [], read_list, 10)
+    for s in readable:
+        if s is sock:
+            client_socket, address = sock.accept()
+            client_socket.setblocking(0)
+            read_list.append(client_socket)
+            logger.debug ("Client connected.")
+        else:
+            recv_cmd = s.recv(1024)
+            if recv_cmd:
+                logger.debug ("Server recv: %s", recv_cmd.decode('UTF-8'))
+                if recv_cmd.decode() == "KILLSERVER":
+                    logger.debug ("Kill requested.")
+                    s.send(recv_cmd)
+                    kill_server(dbconn, soc, sock)
+
+                elif recv_cmd.decode() in "GetSetup":
+                    ret = newcontroller.GetSetup(soc)
+                    if ret:
+                        logger.debug ("Configuration received." + ret)
+                        s.send(recv_cmd)
+                    else:
+                        logger.debug ("Error sending configuration.")
+                elif "STY:" in recv_cmd.decode():
+                    ret = newcontroller.SetDev(soc, recv_cmd.decode())
+                    if ret:
+                        logger.debug ("New configuration sent.")
+                        s.send(recv_cmd)
+                    else:
+                        logger.debug ("Error sending configuration.")
+                        recv_cmd = None
+                else:
+                    s.close()
+                    read_list.remove(s)
+
+    # Handle exceptional conditions"
+    for s in errored:
+        print ('handling exceptional condition for', s.getpeername())
+        # Stop listening for input on the connection
+        read_list.remove(s)
+        s.close()
 
 def mainloop(host, batch_number):
 
@@ -112,16 +166,7 @@ def mainloop(host, batch_number):
                 raise
 
     # Create a UDS socket
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.setblocking(0)
-
-    # Bind the socket to the port
-    logger.debug ("Starting up on %s.", server_address)
-    sock.bind(server_address)
-
-    # Listen for incoming connections
-    sock.listen(5)
+    sock = open_server_sock()
     read_list = [sock]
 
     #Start Infinite loop
@@ -140,47 +185,7 @@ def mainloop(host, batch_number):
             logger.debug("ERROR: Not possible to save data in the DB. Retrying in 10 seconds.")
 
         # Check for client connection to set the device.
-        readable, writable, errored = select.select(read_list, [], read_list, 10)
-        for s in readable:
-            if s is sock:
-                client_socket, address = sock.accept()
-                client_socket.setblocking(0)
-                read_list.append(client_socket)
-                logger.debug ("Client connected.")
-            else:
-                recv_cmd = s.recv(1024)
-                if recv_cmd:
-                    logger.debug ("Server recv: %s", recv_cmd.decode('UTF-8'))
-                    if recv_cmd.decode() == "KILLSERVER":
-                        logger.debug ("Kill requested.")
-                        s.send(recv_cmd)
-                        kill_server(dbconn, soc, sock)
-
-                    elif recv_cmd.decode() in "GetSetup":
-                        ret = newcontroller.GetSetup(soc)
-                        if ret:
-                            logger.debug ("Configuration received." + ret)
-                            s.send(recv_cmd)
-                        else:
-                            logger.debug ("Error sending configuration.")
-                    elif "STY:" in recv_cmd.decode():
-                        ret = newcontroller.SetDev(soc, recv_cmd.decode())
-                        if ret:
-                            logger.debug ("New configuration sent.")
-                            s.send(recv_cmd)
-                        else:
-                            logger.debug ("Error sending configuration.")
-                    recv_cmd = None
-                else:
-                    s.close()
-                    read_list.remove(s)
-
-        # Handle "exceptional conditions"
-        for s in errored:
-            print ('handling exceptional condition for', s.getpeername())
-            # Stop listening for input on the connection
-            read_list.remove(s)
-            s.close()
+        check_for_client(sock, read_list, newcontroller)
 
 def help():
     '''Print the help.'''
